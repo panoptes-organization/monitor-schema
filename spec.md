@@ -307,11 +307,11 @@ track of the workflow. This is up to the server implementation.
 
 #### Update Workflow
 
-`POST /m1/workflow/<workflow-id>/`
+`PUT /m1/workflow/<workflow-id>/`
 
 An update workflow request is done after workflow creation, intended to be sent from the client
 to add metadata to a workflow or otherwise update it. The client should send the following
-data as a `POST` request:
+data as a `PUT` request:
 
 ```
 {
