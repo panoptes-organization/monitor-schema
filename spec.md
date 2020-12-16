@@ -235,6 +235,7 @@ At a minimum, the Monitor Schema expects:
  - **running**: a workflow is currently running
  - **pending**: a working has not started
  - **error**: the job exited or completed with error
+ - **cancelled**: the workflow was cancelled by the user.
  - **completed**: a workflow has finished running.
 
 For the general statuses above, completed could indicate a full completion with
@@ -253,6 +254,9 @@ For example, here is what the response might look like:
     },{
       "name": "scheduled",
       "description": "The workflow has not started, and is scheduled." ,
+    },{
+      "name": "cancelled",
+      "description": "The workflow was cancelled by the user." ,
     },{
       "name": "error",
       "description": "The workflow exited with an error." ,
