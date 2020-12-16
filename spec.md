@@ -233,7 +233,7 @@ statuses of a workflow that can be returned, along with descriptionif needed.
 At a minimum, the Monitor Schema expects:
 
  - **running**: a workflow is currently running
- - **pending**: a working has not started
+ - **pending**: a workflow has not started
  - **error**: the job exited or completed with error
  - **cancelled**: the workflow was cancelled by the user.
  - **completed**: a workflow has finished running.
