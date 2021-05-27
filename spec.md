@@ -12,9 +12,16 @@
   - [Response Details](#response-details)
   - [Endpoint Details](#endpoint-details)
 	1. [Service Info](#service-info)
-	2. [Create Workflow](#create-workflow)
-	3. [Update Workflow](#update-workflow)
-
+	2. [Status](#status)
+	3. [Create Workflow](#create-workflow)
+	4. [Update Workflow](#update-workflow)
+	5. [Get Workflow](#get-workflow)
+	6. [Delete Workflow](#delete-workflow)
+	7. [Rename Workflow](#rename-workflow)
+	8. [Get Workflows](#workflows)
+	9. [Delete Workflows](#delete-workflows)
+	10. [Workflow Jobs](#workflow-jobs)
+	11. [Get a Workflow Job](#get-workflow-job)
 
 ## Overview
 
@@ -80,11 +87,24 @@ Servers conforming to the Monitor spec must provide the following endpoints:
 
 The most basic requirements for a server include endpoints:
  
-1. **Service Info** (/m1/) endpoint with a 200 or 30* response.
-2. **Create New Workflow** (/m1/workflow/create/) to create a workflow
-3. **Update Workflow** (/m1/workflow/update/) to update an existing workflow
+1. **Service Info** (`GET /m1/`) endpoint with a 200 or 30* response.
+2. **Create New Workflow** (`GET /m1/workflow/create/`) to create a workflow
+3. **Update Workflow** (`POST /m1/workflow/<workflow-id>/`) to update an existing workflow
+4. **Get Workflow** (`GET /m1/workflow/<workflow-id>/`)
+
+Extra (but not required) endpoints include:
+
+1. **Statuses**: (`GET /m1/statuses/`) to see all known workflow statuses. If not implemented, assume the default.
+2. **Workflows** (`GET /m1/workflows/`) to see all workflows known to a server.
+3. **Workflow Jobs** (`GET /m1/workflow/<workflow_id>/jobs/`) to see all jobs that belong to a workflow.
+4. **Get Workflow Job**: (`GET /m1/workflow/<workflow-id>/job/<job-id>/`) to get a particular job belonging to a workflow
+5. **Delete Workflow** (`DELETE /m1/workflow/<workflow-id>/`) to delete a workflow
+6. **Rename Workflow**: (`PUT /m1/workflow/<workflow-id>`) to update the name of a workflow (rename)
+7. **Delete Workflows** (`DELETE /m1/workflows/`) to delete all workflows
 
 ### Response Details
+
+#### Errors
 
 For all error responses, the server can (OPTIONAL) return in the body a nested structure of errors,
 each including a message and error code. For example:
@@ -104,6 +124,15 @@ each including a message and error code. For example:
 
 Currently we don't have a namespace for errors, but this can be developed if/when needed.
 For now, the code can be a standard server error code.
+
+#### Timestamps
+
+For all fields that return a timestamp, we are tentatively going to use the stringified
+version of a `datetime.now()`, which looks like this:
+
+```
+2020-12-15 11:43:24.811860
+```
 
 ### Endpoint Details
 
@@ -126,8 +155,8 @@ has changed (e.g., response 302 with a Location header). More detail about the u
 For each of the above, the minimal response returned should include in the body a status message
 and a version, both strings:
 
-```json
-{"status": "success", "version": "1.0.0"}
+```
+{"status": "running", "version": "1.0.0"}
 ```
 
 ##### 404
@@ -135,14 +164,14 @@ and a version, both strings:
 In the case of a 404 response, it means that the server does not implement the monitor spec.
 The client should stop, and then respond appropriately (e.g., giving an error message or warning to the user).
 
-```json
+```
 {"status": "not implemented", "version": "1.0.0"}
 ```
 ##### 200
 
 A 200 is a successful response, meaning that the endpoint was found, and is running.
 
-```json
+```
 {"status": "running", "version": "1.0.0"}
 ```
 
@@ -151,7 +180,7 @@ A 200 is a successful response, meaning that the endpoint was found, and is runn
 If the service exists but is not running, a 503 is returned. The client should respond in the same
 way as the 404, except perhaps trying later.
 
-```json
+```
 {"status": "service not available", "version": "1.0.0"}
 ```
 
@@ -162,7 +191,7 @@ let's say that an updated spec is served at `/m2/` and by default, a client know
 send a request to `/m1/`. To give the client instruction to use `/m2/` for all further
 interactions, the server would return a 302 response
 
-```json
+```
 {"status": "multiple choices", "version": "1.0.0"}
 ```
 
@@ -195,6 +224,53 @@ Location: /service-info/
 For each of the above, if the server does not return a Location header, the client
 should issue an error.
 
+#### Status
+
+`GET /m1/statuses`
+
+The status endpoint exists for a client to retrieve a complete list of possible
+statuses of a workflow that can be returned, along with descriptionif needed. 
+At a minimum, the Monitor Schema expects:
+
+ - **running**: a workflow is currently running
+ - **pending**: a workflow has not started
+ - **error**: the job exited or completed with error
+ - **cancelled**: the workflow was cancelled by the user.
+ - **completed**: a workflow has finished running.
+
+For the general statuses above, completed could indicate a full completion with
+success, failure, or a partial completion with an exit of error. The client
+would then inspect the workflow for more details about the status. Other
+statuses are allowed to be added by the server, as long as they are described here.
+For example, here is what the response might look like:
+
+```
+{"statuses": [{
+      "name": "running",
+      "description": "The workflow is currently running" ,
+    },{
+      "name": "pending",
+      "description": "The workflow has not started, and is not scheduled." ,
+    },{
+      "name": "scheduled",
+      "description": "The workflow has not started, and is scheduled." ,
+    },{
+      "name": "cancelled",
+      "description": "The workflow was cancelled by the user." ,
+    },{
+      "name": "error",
+      "description": "The workflow exited with an error." ,
+    },{
+      "name": "completed",
+      "description": "The workflow has finished." ,
+    },
+}
+```
+
+Notice how we've added a "scheduled" status to indicate a more complex system
+that can have jobs submit but not scheduled (pending) and submit and
+scheduled to run (scheduled).
+
 #### Create Workflow
 
 `GET /m1/workflow/create/`
@@ -203,7 +279,7 @@ A request to create a workflow should come as a `POST` from the client. The id w
 to track the workflow further. The server can respond in any of the following ways:
 
 - [404](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404): not implemented
-- [201](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/200): success (workflow created)
+- [201](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/201): success (workflow created)
 
 ##### 404
 
@@ -218,25 +294,26 @@ an id should be returned in the body:
 {"id": "123456"}
 ```
 
-and (OPTIONALLY) a Location header to indicate a URL to browse to in order to see
+and (OPTIONAL) a Location header to indicate a URL to browse to in order to see
 progress or metadata about the workflow:
 
 ```
-Location: /workflows/123456/
+Location: /workflow/123456/
 ```
 
+This URL typically responds to the API view to get the workflow.
 The receiving server can create whatever internal database models are required to keep
 track of the workflow. This is up to the server implementation.
 
 #### Update Workflow
 
-`POST /m1/workflow/update/`
+`PUT /m1/workflow/<workflow-id>/`
 
 An update workflow request is done after workflow creation, intended to be sent from the client
 to add metadata to a workflow or otherwise update it. The client should send the following
-data as a `POST` request:
+data as a `PUT` request:
 
-```json
+```
 {
   "message": <message>,
   "timestamp": <timestamp>,
@@ -250,7 +327,7 @@ however the following other fields can be provided (OPTIONAL). These
 are derived from the snakemake logging utility:
 
 
-```json
+```
 ...message : {
      "jobid": "123456",
      "level": "info",
@@ -290,3 +367,256 @@ updated. A Location header (OPTIONAL) can be returned again with a web address f
 ```
 Location: <location>
 ```
+
+#### Get Workflow
+
+`GET /m1/workflow/<workflow-id>/`
+
+This endpoint returns metadata about a particular workflow, retrieved based on the id.
+
+- [404](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404): not implemented
+- [200](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/200): success
+
+The highest level of the response looks like this:
+
+```
+{"workflow": ...}
+```
+
+Where the workflow object is a single (workflow item)[#workflow-item], akin to one returned in the
+listing at `/m1/workflows/`.
+
+##### 200
+
+A 200 response returns the serialized data above, and indicates that the request
+was successful.
+
+##### 404 
+
+A 404 response indicates that the endpoint is not implemented.
+
+
+##### Workflow Item
+
+A workflow item is a dictionary that has the following attributes:
+
+ - **id**: the id of the workflow, as understood by the monitoring server
+ - **name**: the name of the workflow
+ - **status**: the status of the workflow, must be one listed from the `/m1/statuses` endpoint.
+ - **started_at**: the time that the workflow was started
+ - **completed_at**: the time that the workflow was completed (or errored and stopped)
+
+The following fields are OPTIONAL, and useful if the workflow is more complex
+and might be broken into jobs.
+
+ - **jobs_total**: the total number of jobs in the workflow
+ - **jobs_done**: the number of jobs completed at the time of the request
+                }
+
+#### Delete Workflow
+
+`DELETE /m1/workflow/<workflow-id>/`
+
+A DELETE request to the workflow endpoint will delete the workflow from the database.
+It's advised for this view to be protected with authentication, although it's not required.
+Responses include:
+
+- [404](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404): not found or not implemented
+- [403](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403): permission denied
+- [204](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/204): successful delete
+- [507](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/507): not enough information
+
+
+##### 404
+
+A 404 response indicates that the endpoint is not implemented, or the workflow was not
+found based on the id.
+
+##### 403
+
+A 403 generally means permission denied, and can result from finding a workflow running
+(we do not allow deleting a running workflow) or not passing authentication. Although
+not part of the spec, typically a 401 would be returned if the user does the request
+without authentication and it's required. Authentication, however, is outside the scope
+of this spec.
+
+##### 204
+
+A 204 response indicates that the workflow was successfully deleted.
+
+##### 507
+
+A 507 response indicates that "the server is unable to store the representation needed to complete the delete request."
+
+
+#### Rename Workflow
+
+`PUT /m1/workflow/<workflow_id>/`
+
+This is a scoped update for a workflow, meaning that we only allow changing the name of the
+workflow. Responses include:
+
+- [404](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404): not found or not implemented
+- [400](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400): bad request
+- [200](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/200): successful rename
+- [500](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500): there was an error in renaming.
+
+Generally, a correct body should provide the name in the data.
+
+```
+{"name": "New Workflow Name"}
+```
+
+##### 404
+
+A 404 response indicates that the workflow was not found, or the endpoint does not exist.
+
+##### 400
+
+A 400 response indicates that the request body was malformed, empty, or missing.
+
+##### 200
+
+A 200 response indicates a successful rename, and we return the same serialized
+data as "Get Workflow" `/m1/workflow/<workflow-id/` with the updated information.
+
+##### 500
+
+A 500 response returns [errors](#errors).
+
+#### Workflows
+
+`GET /m1/workflows/`
+
+The workflows endpoint returns a list of serialized workflows with high
+level metadata and timing information. The following responses can be returned:
+
+- [404](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404): not implemented
+- [200](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/200): success
+
+The highest level of the response looks like this:
+
+```
+{"workflows": [], count: 0}
+```
+
+Where workflows is a list of [workflow items](#workflow-item), and count is the number of workflows
+in the list. 
+
+##### 200
+
+A 200 response returns the serialized data above, and indicates that the request
+was successful.
+
+##### 404 
+
+A 404 response indicates that the endpoint is not implemented.
+
+
+#### Delete Workflows
+
+`DELETE /m1/workflows/`
+
+This endpoint should be implemented with caution (OPTIONAL) as it would delete
+all workflows in the database. It is also advised to have authentication here,
+although it's not officially part of the Monitor spec. The following responses
+can be returned
+
+- [404](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404): not implemented
+- [410](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/410): gone
+- [200](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/200): successful delete
+- [507](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/507): unable to complete
+
+##### 404
+
+A 404 response indicates that the method is not implemented.
+
+##### 200
+
+A 200 is a successful response, indicating that all workflows were deleted.
+
+##### 410
+
+A 410 response indicates that the table is already empty. 
+
+##### 407
+
+A 407 response indicates that "the server is unable to store the representation needed to complete the delete request."
+
+
+#### Workflow Jobs
+
+`GET /m1/workflow/<workflow_id>/jobs/`
+
+A workflow can optionally be broken into jobs. This endpoint is OPTIONAL, and will
+return a listing of jobs that belong to a workflow. The following responses can be returned:
+
+- [404](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404): not implemented
+- [200](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/200): success
+
+The highest level of the response looks like this:
+
+```
+{"jobs": [], count: 0}
+```
+
+Where jobs is a list of [job items](#job-item), and count is the number of jobs
+in the list. 
+
+##### Job Item
+
+A job item is a dictionary (data) with the following attributes:
+
+ - **jobid**: the id of the job, if defined
+ - **workflow_id**: the id of the parent workflow
+ - **name**: the name of the job step
+ - **input**: a list of inputs for the step
+ - **output**: a list of outputs for the step
+ - **status**: the job status, one returned from `/m1/statuses/` or the default
+ - **started_at**: the time the job started
+ - **completed_at**: the time the job was completed or errored and stopped
+ - **log**: content from logging
+
+
+And any extra parameters (e.g., for an implementation like Snakemake) are not
+assumed to exist, and should be checked for existence before indexing on:
+
+ - **message**: an error or output message from the job
+ - **wildcards**: wildcards specific to the job (e.g., snakemake)
+ - **is_checkpoint**: is the job step a checkpoint?
+
+##### 200
+
+A 200 response returns the serialized data above, and indicates that the request
+was successful.
+
+##### 404 
+
+A 404 response indicates that the endpoint is not implemented.
+
+#### Get Workflow Job
+
+`GET /m1/workflow/<workflow_id>/job/<job_id>/`
+
+A single, specific job can be retrieved via this endpoint. Responses include:
+
+- [404](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404): not implemented
+- [200](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/200): success
+
+And given a successful response, the same list of [job items](#job-item) is returned
+as described in [workflow jobs](#workflow-jobs). The only difference is that the
+jobs key is a list of one item. E.g.,:
+
+```
+{"jobs": [], count: 1}
+```
+
+##### 200
+
+A 200 response returns the single job in a list above.
+
+
+##### 404
+
+A 404 response can mean that the job was not found based on the id, or that
+the endpoint is not implemented.
